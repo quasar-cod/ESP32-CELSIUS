@@ -3,12 +3,17 @@
 #include <string>
 #include <vector>
 
-// (TARGET_ADDRESS removed — use MAC_WHITELIST to control which devices are processed)
+// Configuration via #define
+#define SCAN_TIME_S 5
+#define SCAN_INTERVAL_MS 60000UL
 
-// Optional: list MACs to explicitly allow. If non-empty, only these will be processed.
+// (TARGET_ADDRESS removed — use MAC_WHITELIST to control which devices are processed)
 // Edit to add the addresses you want to target (lowercase, colon-separated).
 static const std::vector<std::string> MAC_WHITELIST = {
-    "f7:86:17:6f:ad:57",
+    "f7:86:17:6f:ad:57",//notte
+    "ca:c8:11:8d:e2:c6",//giardino
+    "f1:39:38:e5:68:0a"//soggiorno
+    "c0:23:17:1f:65:4f"//tavernetta
 };
 
 // List MACs to ignore when whitelist is empty (lowercase, colon-separated).
@@ -20,8 +25,10 @@ static const std::vector<std::string> MAC_BLACKLIST = {
     "66:aa:b9:10:ea:87"
 };
 
-int scanTime = 5; // Scan duration in seconds (Scan will restart automatically)
+int scanTime = SCAN_TIME_S; // Scan duration in seconds (Scan will restart automatically)
 NimBLEScan* pBLEScan;
+unsigned long lastScanMillis = 0;
+const unsigned long scanIntervalMs = SCAN_INTERVAL_MS; // 1 minute
 
 // ----------------------------------------------------------------------
 // 1. DATA CALLBACKS (AdvertisedDeviceCallbacks):
@@ -182,11 +189,17 @@ void setup() {
     pBLEScan->setInterval(100);
     pBLEScan->setWindow(100);
     
-    Serial.printf("Starting scan for %d seconds (continuous mode)...\n", scanTime);
-    pBLEScan->start(scanTime, true);
+    Serial.printf("Starting scan for %d seconds...\n", scanTime);
+    // start initial scan (non-continuous) — we'll restart periodically in loop()
+    pBLEScan->start(scanTime, false);
+    lastScanMillis = millis();
 }
 
 void loop() {
-    // The main loop can be empty since the BLE scanning and decoding is handled 
-    // asynchronously by the callback functions.
+    // Periodically start a scan every `scanIntervalMs` milliseconds.
+    if (!pBLEScan->isScanning() && (millis() - lastScanMillis >= scanIntervalMs)) {
+        Serial.println("Scheduled: starting scan...");
+        pBLEScan->start(scanTime, false);
+        lastScanMillis = millis();
+    }
 }

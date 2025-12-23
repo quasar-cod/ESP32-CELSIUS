@@ -3,6 +3,23 @@
 #include <string>
 #include <vector>
 #include <unordered_set>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ESPmDNS.h>
+#define ADDR  "esp8266" 
+
+String ESPT = "esp32_04";
+int pt = 1;
+
+float Temp;
+int Press;
+int Humd;
+String status = "";
+
+#include "time.h"                   // for time() ctime()
+#include "miotime.h"                   // for time() ctime()
+#define MY_NTP_SERVER "it.pool.ntp.org"           
+#define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"   
 
 // Configuration via #define
 #define SCAN_TIME_S 5
@@ -53,8 +70,11 @@ static bool decodeFD3D(const std::string &advLower, uint8_t* sdata, size_t sLen,
         // Use manufacturer-data mapping observed in captures (PayloadLen==26):
         // mdata layout: [0..1]=company id, [2..7]=MAC, [8]=battery, [9]=?, [10]=temp_frac, [11]=temp_int+128, [12]=humidity|flags
         Serial.println("  Using alternate decoder for special meter model (manufacturer-data mapping)");
-        if (mdata != nullptr && mLen >= 13) {
-            int m_battery = (int)mdata[8];
+            if (mdata != nullptr && mLen >= 13) {
+            int8_t raw_b = (int8_t)mdata[8];
+            int m_battery = raw_b < 0 ? -raw_b : (int)raw_b; // some captures encode as signed byte (0xC5 == -59)
+            if (m_battery < 0) m_battery = 0;
+            if (m_battery > 100) m_battery = 100;
             int temp_int = (int)mdata[11] - 128;
             float temp_frac = ((int)mdata[10]) / 10.0f;
             float t = (temp_int >= 0) ? (float)temp_int + temp_frac : (float)temp_int - temp_frac;
@@ -228,11 +248,81 @@ AdvertisedDeviceCallbacks advCallbacks;
 //    to avoid relying on scan-complete callback signatures.
 // ----------------------------------------------------------------------
 
+//************************************************************************************** */
+void updatedata(){
+  HTTPClient http;
+  WiFiClient client;
+  int httpCode;     //--> Variables for HTTP return code.
+  String postData = ""; //--> Variables sent for HTTP POST request data.
+  String payload = "";  //--> Variable for receiving response from HTTP POST.
+
+  Serial.println("updatedata.php");
+  postData = "id=" + ESPT;
+  postData += "&temperature=" + String(Temp);
+  postData += "&humidity=" + String(Humd);
+  postData += "&pressure=" + String(Press);
+  postData += "&status=" + status;
+  postData += "&time=" + timeHMS();
+  postData += "&date=" + dateYMD();
+  Serial.println(postData);  //--> Print request response payload
+  payload = "";
+  http.begin(client,"http://hp-i3/esp8266/updatedata.php");  //--> Specify request destination
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");  //--> Specify content-type header   
+  httpCode = http.POST(postData); //--> Send the request
+  payload = http.getString();  //--> Get the response payload
+  Serial.print("httpCode : ");
+  Serial.println(httpCode); //--> Print HTTP return code
+  Serial.print("payload  : ");
+  Serial.println(payload);  //--> Print request response payload
+  Serial.println("-------------");
+  http.end();  //Close connection 
+}
 
 void setup() {
     Serial.begin(115200);
     delay(1000); 
     Serial.println("Starting BLE Scan for SwitchBot Meter...");
+  Serial.println("Initialized serial communications");
+
+  configTime(0,0, MY_NTP_SERVER); // --> Here is the IMPORTANT ONE LINER needed in your sketch!
+  setenv("TZ","CET-1CEST,M3.5.0/02,M10.5.0/03" ,1);  //  Now adjust the TZ.  Clock settings are adjusted to show the new local time
+  tzset();
+  Serial.println("NTP TZ DST - wait 1 minute");
+// by default, the NTP will be started after 60 secs
+  delay(60000);
+
+// SSID and Password of your WiFi router.
+  const char* ssid = "TIM-39751438_EXT";
+  const char* password = "EFuPktKzk6utU2y5a5SEkUUQ";
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.println("-------------");
+  Serial.print("Connecting");
+  int connecting_process_timed_out = 20; // 10 seconds.
+  connecting_process_timed_out = connecting_process_timed_out * 2;
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+    if(connecting_process_timed_out > 0) connecting_process_timed_out--;
+    if(connecting_process_timed_out == 0) {//Countdown "connecting_process_timed_out".
+      ESP.restart();
+    }
+  }
+  Serial.println();
+  Serial.print("Successfully connected to : ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+  Serial.println("-------------");
+  Serial.println("Abilito dns");
+  if (MDNS.begin(ADDR)) {
+    Serial.println("Abilitato");
+  }
+
+  Serial.println("-------------");
+  Serial.println("orario timezone NTP");
+  Serial.println(timeHMS());
 
     // Initialize the BLE stack
     NimBLEDevice::init("");

@@ -8,6 +8,21 @@
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
 #define ADDR  "esp8266" 
+#include <U8g2lib.h>
+#include <Wire.h>
+
+#define SDA_PIN 5
+#define SCL_PIN 6
+/*
+  U8g2lib Example Overview:
+    Frame Buffer Examples: clearBuffer/sendBuffer. Fast, but may not work with all Arduino boards because of RAM consumption
+    Page Buffer Examples: firstPage/nextPage. Less RAM usage, should work with all Arduino boards.
+    U8x8 Text Only Example: No RAM usage, direct communication with display controller. No graphics, 8x8 Text only.
+    
+*/
+U8G2_SSD1306_72X40_ER_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);   // EastRising 0.42" OLED
+int i,j;
+const int ledPin = 8; 
 
 int pt = 1;
 
@@ -32,7 +47,7 @@ static const std::unordered_map<std::string, std::string> MAC_NAMES = {
 #define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"   
 
 // Configuration via #define
-#define SCAN_TIME_S 5
+#define SCAN_TIME_S 10
 #define SCAN_INTERVAL_MS 60000UL
 
 // (TARGET_ADDRESS removed — use MAC_WHITELIST to control which devices are processed)
@@ -57,7 +72,7 @@ int scanTime = SCAN_TIME_S; // Scan duration in seconds (Scan will restart autom
 NimBLEScan* pBLEScan;
 unsigned long lastScanMillis = 0;
 const unsigned long scanIntervalMs = SCAN_INTERVAL_MS; // 1 minute
-
+String lastTime;
 // Track devices seen during the current scan to avoid duplicate prints
 static std::unordered_set<std::string> seenDevices;
 
@@ -70,7 +85,6 @@ void updatedata(){
   String payload = "";  //--> Variable for receiving response from HTTP POST.
 
   Serial.println("updatedata.php");
-//   postData = "MAC=" + MAC;
   postData = "sensorName=" + sensorName;
   postData += "&temperature=" + String(temperature);
   postData += "&humidity=" + String(humidity);
@@ -280,9 +294,9 @@ AdvertisedDeviceCallbacks advCallbacks;
 // ----------------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
-  delay(2000); 
   Serial.println("\nInitialized serial communications");
-// SSID and Password of your WiFi router.
+  pinMode(ledPin, OUTPUT);  
+  digitalWrite(ledPin, HIGH);     
   const char* ssid = "TIM-39751438";
   const char* password = "EFuPktKzk6utU2y5a5SEkUUQ";
   WiFi.persistent(false);
@@ -294,7 +308,10 @@ void setup() {
   connecting_process_timed_out = connecting_process_timed_out * 2;
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
-    delay(500);
+    delay(250);
+    digitalWrite(ledPin,LOW);
+    delay(250);
+    digitalWrite(ledPin,HIGH);
     if(connecting_process_timed_out > 0) connecting_process_timed_out--;
     if(connecting_process_timed_out == 0) {//Countdown "connecting_process_timed_out".
       ESP.restart();
@@ -316,8 +333,14 @@ void setup() {
   tzset();
   Serial.println("NTP TZ DST - wait 1 minute");
 // by default, the NTP will be started after 60 secs
-//   for (int i =0;i<60;i++){delay(1000);Serial.print(".");}
-  Serial.println("orario timezone NTP");
+  for (int i =0;i<60;i++){
+    Serial.print(".");
+    delay(500);
+    digitalWrite(ledPin,LOW);
+    delay(500);
+    digitalWrite(ledPin,HIGH);
+  }
+  Serial.println("\norario timezone NTP");
   Serial.println(timeHMS());
   Serial.println("\nStarting BLE Scan for SwitchBot Meter...");
     // Initialize the BLE stack
@@ -336,15 +359,27 @@ void setup() {
     seenDevices.clear();
     pBLEScan->start(scanTime, false);
     lastScanMillis = millis();
+    lastTime=timeS();
+//   Wire.begin(SDA_PIN, SCL_PIN);
+//   u8g2.begin();
+//   u8g2.setFont(u8g2_font_timR14_tr);	// choose a suitable font  
+//   u8g2.clearBuffer();
 }
 
 void loop() {
+//   u8g2.setCursor(0, 34);
+//   u8g2.print(timeHMS());
+//   u8g2.sendBuffer();
 // Periodically start a scan every `scanIntervalMs` milliseconds.
-  if (!pBLEScan->isScanning() && (millis() - lastScanMillis >= scanIntervalMs)) {
+//   if (!pBLEScan->isScanning() && (millis() - lastScanMillis >= scanIntervalMs)) {
+  if (!pBLEScan->isScanning() && (timeHM() != lastTime)) {
+    digitalWrite(ledPin,LOW);
     Serial.println("Scheduled: starting scan...");
     // clear seen devices for this new scan so duplicates from previous scans are allowed
     seenDevices.clear();
     pBLEScan->start(scanTime, false);
     lastScanMillis = millis();
+    lastTime=timeHM();
+    digitalWrite(ledPin,HIGH);
   }
 }

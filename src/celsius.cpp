@@ -8,24 +8,17 @@
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
 #define ADDR  "esp8266" 
+
+//dati per display
 #include <U8g2lib.h>
 #include <Wire.h>
-
 #define SDA_PIN 5
 #define SCL_PIN 6
-/*
-  U8g2lib Example Overview:
-    Frame Buffer Examples: clearBuffer/sendBuffer. Fast, but may not work with all Arduino boards because of RAM consumption
-    Page Buffer Examples: firstPage/nextPage. Less RAM usage, should work with all Arduino boards.
-    U8x8 Text Only Example: No RAM usage, direct communication with display controller. No graphics, 8x8 Text only.
-    
-*/
 U8G2_SSD1306_72X40_ER_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);   // EastRising 0.42" OLED
+
 int i,j;
 const int ledPin = 8; 
-
 int pt = 1;
-
 String MAC = "";
 String sensorName = "";
 float temperature = NAN;
@@ -70,8 +63,6 @@ static const std::vector<std::string> MAC_BLACKLIST = {
 
 int scanTime = SCAN_TIME_S; // Scan duration in seconds (Scan will restart automatically)
 NimBLEScan* pBLEScan;
-unsigned long lastScanMillis = 0;
-const unsigned long scanIntervalMs = SCAN_INTERVAL_MS; // 1 minute
 String lastTime;
 // Track devices seen during the current scan to avoid duplicate prints
 static std::unordered_set<std::string> seenDevices;
@@ -121,7 +112,6 @@ static bool decodeFD3D(const std::string &advLower, uint8_t* sdata, size_t sLen,
     if (useAlt) {
         // Use manufacturer-data mapping observed in captures (PayloadLen==26):
         // mdata layout: [0..1]=company id, [2..7]=MAC, [8]=battery, [9]=?, [10]=temp_frac, [11]=temp_int+128, [12]=humidity|flags
-            Serial.println("TIPO 1 MINI");
             if (mdata != nullptr && mLen >= 13) {
             int8_t raw_b = (int8_t)mdata[8];
             int m_battery = raw_b < 0 ? -raw_b : (int)raw_b; // some captures encode as signed byte (0xC5 == -59)
@@ -137,6 +127,7 @@ static bool decodeFD3D(const std::string &advLower, uint8_t* sdata, size_t sLen,
             Serial.printf("  m_Battery: %d%%\n", m_battery);
             Serial.printf("  Temperature: %.1f°C\n", temperature);
             Serial.printf("  Humidity: %.0f%%\n", humidity);
+            Serial.println("TIPO 1 MINI");
             Serial.println("------------------------------------");
             updatedata();
             return true;
@@ -155,7 +146,6 @@ static bool decodeFD3D(const std::string &advLower, uint8_t* sdata, size_t sLen,
         
         return true;
     }
-    Serial.println("TIPO 2 DSPLAY");
     // Default decoder (existing heuristic)
     if (sLen >= 5) {
         int temp_int = ((int)sdata[4]) - 128;
@@ -180,6 +170,7 @@ static bool decodeFD3D(const std::string &advLower, uint8_t* sdata, size_t sLen,
     else Serial.println("  Temperature: <unknown>");
     if (!isnan(humidity)) Serial.printf("  Humidity: %.1f%%\n", humidity);
     else Serial.println("  Humidity: <unknown>");
+    Serial.println("TIPO 2 DISPLAY");
     Serial.println("------------------------------------");
     updatedata();
     return true;
@@ -353,33 +344,31 @@ void setup() {
     pBLEScan->setActiveScan(true);
     pBLEScan->setInterval(100);
     pBLEScan->setWindow(100);
-    Serial.printf("Starting scan for %d seconds...\n", scanTime);
+    // Serial.printf("Starting scan for %d seconds...\n", scanTime);
     // start initial scan (non-continuous) — we'll restart periodically in loop()
     // clear any previous seen set before a new scan
-    seenDevices.clear();
-    pBLEScan->start(scanTime, false);
-    lastScanMillis = millis();
+    // seenDevices.clear();
+    // pBLEScan->start(scanTime, false);
     lastTime=timeS();
-//   Wire.begin(SDA_PIN, SCL_PIN);
-//   u8g2.begin();
-//   u8g2.setFont(u8g2_font_timR14_tr);	// choose a suitable font  
-//   u8g2.clearBuffer();
+//dati per display
+  Wire.begin(SDA_PIN, SCL_PIN);
+  u8g2.begin();
+  u8g2.setFont(u8g2_font_timR14_tr);	// choose a suitable font  
+  u8g2.clearBuffer();
 }
 
 void loop() {
-//   u8g2.setCursor(0, 34);
-//   u8g2.print(timeHMS());
-//   u8g2.sendBuffer();
-// Periodically start a scan every `scanIntervalMs` milliseconds.
-//   if (!pBLEScan->isScanning() && (millis() - lastScanMillis >= scanIntervalMs)) {
+//dati per display
+  u8g2.setCursor(0, 34);
+  u8g2.print(timeHMS());
+  u8g2.sendBuffer();
   if (!pBLEScan->isScanning() && (timeHM() != lastTime)) {
     digitalWrite(ledPin,LOW);
-    Serial.println("Scheduled: starting scan...");
+    lastTime=timeHM();
+    Serial.println("Scheduled: starting scan at: " + lastTime);
     // clear seen devices for this new scan so duplicates from previous scans are allowed
     seenDevices.clear();
     pBLEScan->start(scanTime, false);
-    lastScanMillis = millis();
-    lastTime=timeHM();
     digitalWrite(ledPin,HIGH);
   }
 }

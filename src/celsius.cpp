@@ -16,7 +16,7 @@
 #define SCL_PIN 6
 U8G2_SSD1306_72X40_ER_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);   // EastRising 0.42" OLED
 
-String BOARD = "2";
+String BOARD = "1";
 int i,j;
 const int ledPin = 8; 
 int pt = 1;
@@ -53,14 +53,14 @@ static const std::vector<std::string> MAC_WHITELIST = {
     "ca:c8:11:8d:e2:c6"
 };
 
-// List MACs to ignore when whitelist is empty (lowercase, colon-separated).
-static const std::vector<std::string> MAC_BLACKLIST = {
-    "2b:ed:64:24:44:d5",
-    "38:01:95:1c:47:33",
-    "1e:f6:22:94:c3:3e",
-    "e2:da:33:12:4b:79",
-    "66:aa:b9:10:ea:87"
-};
+// // List MACs to ignore when whitelist is empty (lowercase, colon-separated).
+// static const std::vector<std::string> MAC_BLACKLIST = {
+//     "2b:ed:64:24:44:d5",
+//     "38:01:95:1c:47:33",
+//     "1e:f6:22:94:c3:3e",
+//     "e2:da:33:12:4b:79",
+//     "66:aa:b9:10:ea:87"
+// };
 
 int scanTime = SCAN_TIME_S; // Scan duration in seconds (Scan will restart automatically)
 NimBLEScan* pBLEScan;
@@ -110,15 +110,14 @@ void updatedata(){
 static bool decodeFD3D(const std::string &advLower, uint8_t* sdata, size_t sLen, uint8_t* mdata=nullptr, size_t mLen=0, bool useAlt=false) {
     if (sLen >= 3) battery = sdata[2];
     auto inRange = [](float v){ return v > -40.0f && v < 85.0f; };
-        // Special-case alternate model at MAC f1:39:38:e5:68:0a
     if (useAlt) {
         // Use manufacturer-data mapping observed in captures (PayloadLen==26):
         // mdata layout: [0..1]=company id, [2..7]=MAC, [8]=battery, [9]=?, [10]=temp_frac, [11]=temp_int+128, [12]=humidity|flags
-            if (mdata != nullptr && mLen >= 13) {
-            int8_t raw_b = (int8_t)mdata[8];
-            int m_battery = raw_b < 0 ? -raw_b : (int)raw_b; // some captures encode as signed byte (0xC5 == -59)
-            if (m_battery < 0) m_battery = 0;
-            if (m_battery > 100) m_battery = 100;
+        if (mdata != nullptr && mLen >= 13) {
+            // int8_t raw_b = (int8_t)mdata[8];
+            // int m_battery = raw_b < 0 ? -raw_b : (int)raw_b; // some captures encode as signed byte (0xC5 == -59)
+            // if (m_battery < 0) m_battery = 0;
+            // if (m_battery > 100) m_battery = 100;
             int temp_int = (int)mdata[11] - 128;
             float temp_frac = ((int)mdata[10]) / 10.0f;
             float t = (temp_int >= 0) ? (float)temp_int + temp_frac : (float)temp_int - temp_frac;
@@ -126,7 +125,7 @@ static bool decodeFD3D(const std::string &advLower, uint8_t* sdata, size_t sLen,
             if (inRange(t)) temperature = t;
             humidity = (h >= 0.0f && h <= 100.0f) ? h : NAN;
             Serial.printf("  Battery: %d%%\n", battery);
-            Serial.printf("  m_Battery: %d%%\n", m_battery);
+            // Serial.printf("  m_Battery: %d%%\n", m_battery);
             Serial.printf("  Temperature: %.1f°C\n", temperature);
             Serial.printf("  Humidity: %.0f%%\n", humidity);
             Serial.println("TIPO 1 MINI");
@@ -148,7 +147,6 @@ static bool decodeFD3D(const std::string &advLower, uint8_t* sdata, size_t sLen,
         
         return true;
     }
-    // Default decoder (existing heuristic)
     if (sLen >= 5) {
         int temp_int = ((int)sdata[4]) - 128;
         float temp_frac = ((float)sdata[3]) / 10.0f;
@@ -191,10 +189,11 @@ public:
             bool allowed = false;
             for (const auto &w : MAC_WHITELIST) if (advLower == toLower(w)) { allowed = true; break; }
             if (!allowed) return; // not in whitelist
-        } else {
-            // Ignore blacklisted MACs when whitelist is empty
-            for (const auto &b : MAC_BLACKLIST) if (advLower == toLower(b)) return;
-        }
+        } 
+        // else {
+        //     // Ignore blacklisted MACs when whitelist is empty
+        //     for (const auto &b : MAC_BLACKLIST) if (advLower == toLower(b)) return;
+        // }
         // Deduplicate within a single scan: skip if we've already processed this MAC
         if (seenDevices.find(advLower) != seenDevices.end()) return;
         seenDevices.insert(advLower);
@@ -335,7 +334,7 @@ void setup() {
   }
   Serial.println("\norario timezone NTP");
   Serial.println(timeHMS());
-  Serial.println("\nStarting BLE Scan for SwitchBot Meter...");
+  Serial.println("\nInitialize the BLE stack for SwitchBot Meter...");
     // Initialize the BLE stack
     NimBLEDevice::init("");
     pBLEScan = NimBLEDevice::getScan();
@@ -346,7 +345,7 @@ void setup() {
     pBLEScan->setActiveScan(true);
     pBLEScan->setInterval(100);
     pBLEScan->setWindow(100);
-    // Serial.printf("Starting scan for %d seconds...\n", scanTime);
+    Serial.printf("Setting scan for %d seconds...\n", scanTime);
     // start initial scan (non-continuous) — we'll restart periodically in loop()
     // clear any previous seen set before a new scan
     // seenDevices.clear();
@@ -371,6 +370,16 @@ void loop() {
     // clear seen devices for this new scan so duplicates from previous scans are allowed
     seenDevices.clear();
     pBLEScan->start(scanTime, false);
-    digitalWrite(ledPin,HIGH);
+    Serial.printf("Scan complete: %u devices found\n", (unsigned)seenDevices.size());
+    if ((unsigned)seenDevices.size()==0)
+      {
+      sensorName = "FAULT";
+      temperature = 0;
+      humidity = 0;
+      battery = 0;
+      RSSI = "";
+      digitalWrite(ledPin,HIGH);
+      updatedata();
+    }
   }
 }

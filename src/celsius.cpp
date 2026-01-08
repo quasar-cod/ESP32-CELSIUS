@@ -16,9 +16,10 @@
 #define SCL_PIN 6
 U8G2_SSD1306_72X40_ER_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);   // EastRising 0.42" OLED
 
-String BOARD = "1";
+int Ndevices=0;
+String BOARD = "2";
 int i,j;
-const int ledPin = 8; 
+const int ledPin = 8; //logica invertita
 int pt = 1;
 String MAC = "";
 String sensorName = "";
@@ -26,6 +27,15 @@ float temperature = NAN;
 float humidity = NAN;
 int battery = -1;
 String RSSI = "";
+const char* ssid = "TIM-39751438";// soggiorno
+// const char* ssid = "TIM-39751438_TENDA";//tavernetta
+// const char* ssid = "TIM-39751438_EXT";// notte
+
+const char* password = "EFuPktKzk6utU2y5a5SEkUUQ";
+const char* site = "http://myhomesmart.altervista.org/";
+//const char* site = "http://hp-i3/tappa/";
+
+int connecting_process_timed_out;
 
 // Map MAC (lowercase, colon-separated) to human-friendly sensor name
 static const std::unordered_map<std::string, std::string> MAC_NAMES = {
@@ -68,6 +78,72 @@ String lastTime;
 // Track devices seen during the current scan to avoid duplicate prints
 static std::unordered_set<std::string> seenDevices;
 
+//************************************************************************************** */
+void connect(){
+  int r;
+  for (r=1;r<10;r++){
+    connecting_process_timed_out = 35;
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid,password);
+    Serial.println("***********************************************");
+    Serial.println("Connecting to ");
+    Serial.println(ssid);
+    Serial.println("***********************************************");
+    while (WiFi.status() != WL_CONNECTED & (connecting_process_timed_out > 0)){
+      Serial.print(".");//3 flash 1.7 secondi
+      digitalWrite(ledPin,LOW);
+      delay(100);
+      digitalWrite(ledPin,HIGH);
+      delay(200);
+      digitalWrite(ledPin,LOW);
+      delay(100);
+      digitalWrite(ledPin,HIGH);
+      delay(200);
+      digitalWrite(ledPin,LOW);
+      delay(100);
+      digitalWrite(ledPin,HIGH);
+      delay(1000);
+      connecting_process_timed_out--;
+    }
+    Serial.println("\n***********************************************");
+    Serial.print("Successfully connected to ");
+    Serial.println(WiFi.SSID());
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+    Serial.println("-------------");
+    Serial.println("Abilito dns");
+    if (MDNS.begin(ADDR)){
+      Serial.println("-------------");
+      Serial.println("Abilitato");
+      Serial.println("***********************************************");
+      break;
+    }
+    delay(r*60000);//ad ogni tentativo aumento il ritardo di un minuto
+  }
+  if (r==10) ESP.restart();
+}
+//************************************************************************************** */
+void tmz(){
+  // --> Here is the IMPORTANT ONE LINER needed in your sketch!
+  // configTime(MY_TZ, MY_NTP_SERVER); //sulle esp8266 basta questa sola riga e le define
+  configTime(0,0, MY_NTP_SERVER); //sulle ESP32 occorre separare in tre righe 
+  setenv("TZ","CET-1CEST,M3.5.0/02,M10.5.0/03" ,1);  //  Now adjust the TZ.  Clock settings are adjusted to show the new local time
+  tzset();
+  Serial.println("\n***********************************************");
+  Serial.println("NTP TZ DST - wait 1 minute");
+  Serial.println("***********************************************");
+  for (int i=0;i<44;i++){
+    Serial.print(".");//2 flash 1.4 secondi
+    digitalWrite(ledPin,LOW);
+    delay(100);
+    digitalWrite(ledPin,HIGH);
+    delay(200);
+    digitalWrite(ledPin,LOW);
+    delay(100);
+    digitalWrite(ledPin,HIGH);
+    delay(1000);
+  }
+}
 //************************************************************************************** */
 void updatedata(){
   HTTPClient http;
@@ -212,7 +288,6 @@ public:
         } else {
             Serial.println("  Payload: <none>");
         }
-        // At this point the device is allowed (whitelist/blacklist checks passed)
         {
             RSSI=advertisedDevice->getRSSI();
             MAC= advertisedDevice->getAddress().toString().c_str();
@@ -288,81 +363,38 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\nInitialized serial communications");
   pinMode(ledPin, OUTPUT);  
-  digitalWrite(ledPin, HIGH);     
-  const char* ssid = "TIM-39751438";
-  const char* password = "EFuPktKzk6utU2y5a5SEkUUQ";
-  WiFi.persistent(false);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  Serial.println("-------------");
-  Serial.print("Connecting to wifi");
-  int connecting_process_timed_out = 20; // 10 seconds.
-  connecting_process_timed_out = connecting_process_timed_out * 2;
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(250);
-    digitalWrite(ledPin,LOW);
-    delay(250);
-    digitalWrite(ledPin,HIGH);
-    if(connecting_process_timed_out > 0) connecting_process_timed_out--;
-    if(connecting_process_timed_out == 0) {//Countdown "connecting_process_timed_out".
-      ESP.restart();
-    }
-  }
-  Serial.println();
-  Serial.print("Successfully connected to : ");
-  Serial.println(ssid);
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
-  Serial.println("-------------");
-  Serial.println("Abilito dns");
-  if (MDNS.begin(ADDR)) {
-    Serial.println("Abilitato");
-  }
-  Serial.println("-------------");
-  configTime(0,0, MY_NTP_SERVER); // --> Here is the IMPORTANT ONE LINER needed in your sketch!
-  setenv("TZ","CET-1CEST,M3.5.0/02,M10.5.0/03" ,1);  //  Now adjust the TZ.  Clock settings are adjusted to show the new local time
-  tzset();
-  Serial.println("NTP TZ DST - wait 1 minute");
-// by default, the NTP will be started after 60 secs
-  for (int i =0;i<60;i++){
-    Serial.print(".");
-    delay(500);
-    digitalWrite(ledPin,LOW);
-    delay(500);
-    digitalWrite(ledPin,HIGH);
-  }
-  Serial.println("\norario timezone NTP");
-  Serial.println(timeHMS());
-  Serial.println("\nInitialize the BLE stack for SwitchBot Meter...");
-    // Initialize the BLE stack
-    NimBLEDevice::init("");
-    pBLEScan = NimBLEDevice::getScan();
-    // Assign the advertised device callback handler
-    pBLEScan->setAdvertisedDeviceCallbacks(&advCallbacks, true);
-    // Configure scan settings
-    // Use active scan to request scan responses and improve discovery reliability
-    pBLEScan->setActiveScan(true);
-    pBLEScan->setInterval(100);
-    pBLEScan->setWindow(100);
-    Serial.printf("Setting scan for %d seconds...\n", scanTime);
-    // start initial scan (non-continuous) — we'll restart periodically in loop()
-    // clear any previous seen set before a new scan
-    // seenDevices.clear();
-    // pBLEScan->start(scanTime, false);
-    lastTime=timeS();
 //dati per display
   Wire.begin(SDA_PIN, SCL_PIN);
   u8g2.begin();
-  u8g2.setFont(u8g2_font_timR14_tr);	// choose a suitable font  
+  u8g2.setFont(u8g2_font_timR14_tf);
   u8g2.clearBuffer();
+  u8g2.setCursor(0,15);
+  u8g2.print("Starting");
+  u8g2.setCursor(0,40);
+  u8g2.print("wait 1min");
+  u8g2.sendBuffer();
+  connect();
+  tmz();
+  // Initialize the BLE stack
+  NimBLEDevice::init("");
+  pBLEScan = NimBLEDevice::getScan();
+  // Assign the advertised device callback handler
+  pBLEScan->setAdvertisedDeviceCallbacks(&advCallbacks, true);
+  // Configure scan settings
+  // Use active scan to request scan responses and improve discovery reliability
+  pBLEScan->setActiveScan(true);
+  pBLEScan->setInterval(100);
+  pBLEScan->setWindow(100);
+  Serial.printf("Setting scan for %d seconds...\n", scanTime);
+  // start initial scan (non-continuous) — we'll restart periodically in loop()
+  // clear any previous seen set before a new scan
+  // seenDevices.clear();
+  // pBLEScan->start(scanTime, false);
+  lastTime=timeHM();
+  Ndevices=0;
 }
 
 void loop() {
-//dati per display
-  u8g2.setCursor(0, 34);
-  u8g2.print(timeHMS());
-  u8g2.sendBuffer();
   if (!pBLEScan->isScanning() && (timeHM() != lastTime)) {
     digitalWrite(ledPin,LOW);
     lastTime=timeHM();
@@ -371,15 +403,25 @@ void loop() {
     seenDevices.clear();
     pBLEScan->start(scanTime, false);
     Serial.printf("Scan complete: %u devices found\n", (unsigned)seenDevices.size());
-    if ((unsigned)seenDevices.size()==0)
-      {
-      sensorName = "FAULT";
-      temperature = 0;
-      humidity = 0;
-      battery = 0;
-      RSSI = "";
-      digitalWrite(ledPin,HIGH);
-      updatedata();
+    sensorName = "COUNT";
+    Ndevices = (unsigned)seenDevices.size();
+    humidity = 0;
+    battery = 0;
+    RSSI = "0";
+    temperature=Ndevices;
+    if(WiFi.waitForConnectResult()== WL_CONNECTED) {
+      updatedata(); 
     }
+    else{
+      connect();
+    }
+    digitalWrite(ledPin,HIGH);
   }
+  //dati per display
+  u8g2.clearBuffer();
+  u8g2.setCursor(0, 20);
+  u8g2.print(timeHMS());
+  u8g2.setCursor(0, 40);
+  u8g2.print(Ndevices);
+  u8g2.sendBuffer();
 }

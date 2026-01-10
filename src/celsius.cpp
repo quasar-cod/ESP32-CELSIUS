@@ -14,14 +14,13 @@
 #include <Wire.h>
 #define SDA_PIN 5
 #define SCL_PIN 6
-U8G2_SSD1306_72X40_ER_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);   // EastRising 0.42" OLED
+U8G2_SSD1306_72X40_ER_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);   // EastRising 0.42" OLED
 
 int Ndevices=0;
 String BOARD = "2";
 int i,j;
 const int ledPin = 8; //logica invertita
 int pt = 1;
-String MAC = "";
 String sensorName = "";
 float temperature = NAN;
 float humidity = NAN;
@@ -37,14 +36,6 @@ const char* site = "http://myhomesmart.altervista.org/";
 
 int connecting_process_timed_out;
 
-// Map MAC (lowercase, colon-separated) to human-friendly sensor name
-static const std::unordered_map<std::string, std::string> MAC_NAMES = {
-    {"f7:86:17:6f:ad:57", "SWBT01"},
-    {"f1:39:38:e5:68:0a", "SWBT02"},
-    {"c0:23:17:1f:65:4f", "SWBT03"},
-    {"ca:c8:11:8d:e2:c6", "SWBT04"}
-};
-
 #include "time.h"                 // for time() ctime()
 #include "miotime.h"                   // for time() ctime()
 #define MY_NTP_SERVER "it.pool.ntp.org"           
@@ -53,24 +44,15 @@ static const std::unordered_map<std::string, std::string> MAC_NAMES = {
 // Configuration via #define
 #define SCAN_TIME_S 10
 #define SCAN_INTERVAL_MS 60000UL
+// Use the keys of MAC_NAMES as the implicit whitelist (lowercase, colon-separated MACs)
 
-// (TARGET_ADDRESS removed — use MAC_WHITELIST to control which devices are processed)
-// Edit to add the addresses you want to target (lowercase, colon-separated).
-static const std::vector<std::string> MAC_WHITELIST = {
-    "f7:86:17:6f:ad:57",
-    "f1:39:38:e5:68:0a",
-    "c0:23:17:1f:65:4f",
-    "ca:c8:11:8d:e2:c6"
+// Map MAC (lowercase, colon-separated) to human-friendly sensor name
+static const std::unordered_map<std::string, std::string> MAC_NAMES = {
+    {"f7:86:17:6f:ad:57", "SWBT01"},
+    {"f1:39:38:e5:68:0a", "SWBT02"},
+    {"c0:23:17:1f:65:4f", "SWBT03"},
+    {"ca:c8:11:8d:e2:c6", "SWBT04"}
 };
-
-// // List MACs to ignore when whitelist is empty (lowercase, colon-separated).
-// static const std::vector<std::string> MAC_BLACKLIST = {
-//     "2b:ed:64:24:44:d5",
-//     "38:01:95:1c:47:33",
-//     "1e:f6:22:94:c3:3e",
-//     "e2:da:33:12:4b:79",
-//     "66:aa:b9:10:ea:87"
-// };
 
 int scanTime = SCAN_TIME_S; // Scan duration in seconds (Scan will restart automatically)
 NimBLEScan* pBLEScan;
@@ -113,9 +95,7 @@ void connect(){
     Serial.println("-------------");
     Serial.println("Abilito dns");
     if (MDNS.begin(ADDR)){
-      Serial.println("-------------");
       Serial.println("Abilitato");
-      Serial.println("***********************************************");
       break;
     }
     delay(r*60000);//ad ogni tentativo aumento il ritardo di un minuto
@@ -129,9 +109,8 @@ void tmz(){
   configTime(0,0, MY_NTP_SERVER); //sulle ESP32 occorre separare in tre righe 
   setenv("TZ","CET-1CEST,M3.5.0/02,M10.5.0/03" ,1);  //  Now adjust the TZ.  Clock settings are adjusted to show the new local time
   tzset();
-  Serial.println("\n***********************************************");
-  Serial.println("NTP TZ DST - wait 1 minute");
   Serial.println("***********************************************");
+  Serial.println("NTP TZ DST - wait 1 minute");
   for (int i=0;i<44;i++){
     Serial.print(".");//2 flash 1.4 secondi
     digitalWrite(ledPin,LOW);
@@ -163,7 +142,7 @@ void updatedata(){
   postData += "&date=" + dateYMD();
   Serial.println(postData);  //--> Print request response payload
   payload = "";
-//   http.begin(client,"http://hp-i3/celsius/updatedata.php");  //--> Specify request destination
+// http.begin(client,"http://hp-i3/celsius/updatedata.php");  //--> Specify request destination
   http.begin(client,"http://myhomesmart.altervista.org/celsius/updatedata.php");  //--> Specify request destination
   //NB va usato http e non https
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");  //--> Specify content-type header   
@@ -220,7 +199,6 @@ static bool decodeFD3D(const std::string &advLower, uint8_t* sdata, size_t sLen,
         if (!isnan(temperature)) Serial.printf("  Chosen Temperature: %.2f°C\n", temperature);
         else Serial.println("  Chosen Temperature: <unknown>");
         Serial.println("------------------------------------");
-        
         return true;
     }
     if (sLen >= 5) {
@@ -260,104 +238,84 @@ public:
         std::string advAddr = advertisedDevice->getAddress().toString();
         auto toLower = [](std::string s){ for (auto &c: s) c = tolower(c); return s; };
         std::string advLower = toLower(advAddr);
-        // If a whitelist is configured, only process those MACs
-        if (!MAC_WHITELIST.empty()) {
-            bool allowed = false;
-            for (const auto &w : MAC_WHITELIST) if (advLower == toLower(w)) { allowed = true; break; }
-            if (!allowed) return; // not in whitelist
-        } 
-        // else {
-        //     // Ignore blacklisted MACs when whitelist is empty
-        //     for (const auto &b : MAC_BLACKLIST) if (advLower == toLower(b)) return;
-        // }
+        // Only process MACs present in MAC_NAMES (acts as the whitelist)
+        if (MAC_NAMES.find(advLower) == MAC_NAMES.end()) return;
         // Deduplicate within a single scan: skip if we've already processed this MAC
         if (seenDevices.find(advLower) != seenDevices.end()) return;
         seenDevices.insert(advLower);
         // Debug: print summary for every (allowed) discovered device
         size_t payloadLenDbg = advertisedDevice->getPayloadLength();
         std::string nameDbg = advertisedDevice->getName();
-        Serial.printf("Found device: %s  RSSI: %d dBm  PayloadLen: %u  Name: %s\n",
-                      advertisedDevice->getAddress().toString().c_str(),
-                      advertisedDevice->getRSSI(), (unsigned)payloadLenDbg,
-                      nameDbg.c_str());
         uint8_t* payloadDbg = advertisedDevice->getPayload();
+        Serial.println("Found device!!!!!!");
         if (payloadDbg != nullptr && payloadLenDbg > 0) {
             Serial.print("  Payload: ");
             for (size_t i = 0; i < payloadLenDbg && i < 32; ++i) Serial.printf("%02X ", payloadDbg[i]);
             Serial.println();
         } else {
             Serial.println("  Payload: <none>");
+            return;
         }
-        {
-            RSSI=advertisedDevice->getRSSI();
-            MAC= advertisedDevice->getAddress().toString().c_str();
-            Serial.println("--- SwitchBot Meter (T/H) FOUND & DECODING ---");
-                        // Prefer configured friendly name for this MAC, fall back to advertised name
-                        if (MAC_NAMES.find(advLower) != MAC_NAMES.end()) sensorName = MAC_NAMES.at(advLower).c_str();
-                        else sensorName = advertisedDevice->getName().c_str();
-                        Serial.printf("  Name: %s\n", sensorName.c_str());
-            Serial.printf("  MAC: %s\n", advertisedDevice->getAddress().toString().c_str());
-            Serial.printf("  RSSI: %d dBm\n", advertisedDevice->getRSSI());
-            uint8_t* payload = advertisedDevice->getPayload();
-            size_t payloadLen = advertisedDevice->getPayloadLength();
-            if (payload == nullptr || payloadLen == 0) {
-                Serial.println("  ERROR: No payload to decode.");
-                return;
-            }
-            // Parse AD structures in the payload to find Service Data (type 0x16)
-            // looking for UUID 0xFD3D (little-endian bytes: 0x3D 0xFD).
-            size_t idx = 0;
-            bool decoded = false;
-            while (idx + 1 < payloadLen) {
-                uint8_t len = payload[idx];
-                if (len == 0) break;
-                if (idx + len >= payloadLen) break;
-                uint8_t type = payload[idx + 1];
-                if (type == 0x16 && len >= 3) { // Service Data - 16-bit UUID
-                    // UUID is at idx+2 (2 bytes, little-endian)
-                    uint16_t uuid = payload[idx + 2] | (payload[idx + 3] << 8);
-                    if (uuid == 0xFD3D) {
-                        // service data payload starts at idx+4, length = len-3
-                        uint8_t* sdata = payload + idx + 4;
-                        size_t sLen = len - 3;
-                        // find manufacturer data (type 0xFF) in the AD payload so we can pass it to decoder
-                        uint8_t* mdata = nullptr; size_t mLen = 0;
-                        size_t idx2 = 0;
-                        while (idx2 + 1 < payloadLen) {
-                            uint8_t l2 = payload[idx2];
-                            if (l2 == 0) break;
-                            if (idx2 + l2 >= payloadLen) break;
-                            uint8_t t2 = payload[idx2 + 1];
-                            if (t2 == 0xFF && l2 >= 2) { // Manufacturer Specific
-                                mdata = payload + idx2 + 2;
-                                mLen = l2 - 1;
-                                break;
-                            }
-                            idx2 += (size_t)l2 + 1;
+        RSSI = advertisedDevice->getRSSI();
+        // Prefer configured friendly name for this MAC, fall back to advertised name
+        if (MAC_NAMES.find(advLower) != MAC_NAMES.end()) sensorName = MAC_NAMES.at(advLower).c_str();
+        else sensorName = advertisedDevice->getName().c_str();
+        Serial.printf("  PayloadLen: %u\n",(unsigned)payloadLenDbg);
+        Serial.printf("  Name: %s\n", sensorName.c_str());
+        Serial.printf("  MAC: %s\n", advertisedDevice->getAddress().toString().c_str());
+        Serial.printf("  RSSI: %d dBm\n", advertisedDevice->getRSSI());
+        uint8_t* payload = advertisedDevice->getPayload();
+        size_t payloadLen = advertisedDevice->getPayloadLength();
+        // Parse AD structures in the payload to find Service Data (type 0x16)
+        // looking for UUID 0xFD3D (little-endian bytes: 0x3D 0xFD).
+        size_t idx = 0;
+        bool decoded = false;
+        while (idx + 1 < payloadLen) {
+            uint8_t len = payload[idx];
+            if (len == 0) break;
+            if (idx + len >= payloadLen) break;
+            uint8_t type = payload[idx + 1];
+            if (type == 0x16 && len >= 3) { // Service Data - 16-bit UUID
+                // UUID is at idx+2 (2 bytes, little-endian)
+                uint16_t uuid = payload[idx + 2] | (payload[idx + 3] << 8);
+                if (uuid == 0xFD3D) {
+                    // service data payload starts at idx+4, length = len-3
+                    uint8_t* sdata = payload + idx + 4;
+                    size_t sLen = len - 3;
+                    // find manufacturer data (type 0xFF) in the AD payload so we can pass it to decoder
+                    uint8_t* mdata = nullptr; 
+                    size_t mLen = 0;
+                    size_t idx2 = 0;
+                    while (idx2 + 1 < payloadLen) {
+                        uint8_t l2 = payload[idx2];
+                        if (l2 == 0) break;
+                        if (idx2 + l2 >= payloadLen) break;
+                        uint8_t t2 = payload[idx2 + 1];
+                        if (t2 == 0xFF && l2 >= 2) { // Manufacturer Specific
+                            mdata = payload + idx2 + 2;
+                            mLen = l2 - 1;
+                            break;
                         }
-                        // Accept the usual 0x69 signature, or allow the special-case MAC
-                        if (sLen >= 3 && (sdata[0] == 0x69 || payloadLen == 26)) {
-                            if (decodeFD3D(advLower, sdata, sLen, mdata, mLen, payloadLen == 26)) {
-                                decoded = true;
-                                break;
-                            }
+                        idx2 += (size_t)l2 + 1;
+                    }
+                    // Accept the usual 0x69 signature, or allow the special-case MAC
+                    if (sLen >= 3 && (sdata[0] == 0x69 || payloadLen == 26)) {
+                        if (decodeFD3D(advLower, sdata, sLen, mdata, mLen, payloadLen == 26)) {
+                            decoded = true;
+                            break;
                         }
                     }
                 }
-                idx += (size_t)len + 1;
             }
-            if (!decoded) {
-                Serial.println("  No SwitchBot FD3D service data found to decode.");
-                Serial.println("------------------------------------");
-            }
+            idx += (size_t)len + 1;
+        }
+        if (!decoded) {
+            Serial.println("  No SwitchBot FD3D service data found to decode.");
+            Serial.println("------------------------------------");
         }
     }
 };
 AdvertisedDeviceCallbacks advCallbacks;
-// ----------------------------------------------------------------------
-// 2. SCAN CONTROLLER:
-//    Use the `start(duration, true)` overload for continuous scanning
-//    to avoid relying on scan-complete callback signatures.
 // ----------------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
@@ -385,11 +343,7 @@ void setup() {
   pBLEScan->setActiveScan(true);
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(100);
-  Serial.printf("Setting scan for %d seconds...\n", scanTime);
-  // start initial scan (non-continuous) — we'll restart periodically in loop()
-  // clear any previous seen set before a new scan
-  // seenDevices.clear();
-  // pBLEScan->start(scanTime, false);
+  Serial.printf("\nSetting scan for %d seconds...\n", scanTime);
   lastTime=timeHM();
   Ndevices=0;
 }
@@ -403,18 +357,15 @@ void loop() {
     seenDevices.clear();
     pBLEScan->start(scanTime, false);
     Serial.printf("Scan complete: %u devices found\n", (unsigned)seenDevices.size());
+    //preparo i dati per la funzione updatedata()
     sensorName = "COUNT";
     Ndevices = (unsigned)seenDevices.size();
     humidity = 0;
     battery = 0;
     RSSI = "0";
     temperature=Ndevices;
-    if(WiFi.waitForConnectResult()== WL_CONNECTED) {
-      updatedata(); 
-    }
-    else{
-      connect();
-    }
+    if(WiFi.waitForConnectResult()== WL_CONNECTED)updatedata(); 
+    else connect();
     digitalWrite(ledPin,HIGH);
   }
   //dati per display
